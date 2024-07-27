@@ -1,24 +1,26 @@
+# Implements the LCD class for a ST7735S 1.8in LCD 160 x 128 pixel device
+# Data sheet: https://files.waveshare.com/upload/e/e2/ST7735S_V1.1_20111121.pdf
 
 from machine import Pin,SPI,PWM
 import framebuf3 as framebuf
 import time
 
-BL = 13
-DC = 8
-RST = 12
-MOSI = 11
-SCK = 10
-CS = 9
-
+# Pinout: GP Pins on Pico used by LCD
+BL = 13   # Backlight
+DC = 8    # Data/Command control pin (High for data; Low for command)
+RST = 12  # Reset pin, low active
+MOSI = 11 # MOSI pin of SPI, slave device data input
+SCK = 10  # SCK pin of SPI, clock pin
+CS = 9    # Chip selection of SPI, low active
 
 class LCD_1inch8(framebuf.FrameBuffer):
     def __init__(self):
         self.width = 160
         self.height = 128
-        
+
         self.cs = Pin(CS,Pin.OUT)
         self.rst = Pin(RST,Pin.OUT)
-        
+
         self.cs(1)
         self.spi = SPI(1)
         self.spi = SPI(1,1000_000)
@@ -28,8 +30,8 @@ class LCD_1inch8(framebuf.FrameBuffer):
         self.buffer = bytearray(self.height * self.width * 2)
         super().__init__(self.buffer, self.width, self.height, framebuf.RGB565)
         self.init_display()
-        
 
+        # Colour codes for 16-bit RGB565 configuration
         self.WHITE =   0xFFFF
         self.BLACK  =  0x0000
         self.GREEN   =  0x001F
@@ -38,7 +40,7 @@ class LCD_1inch8(framebuf.FrameBuffer):
         self.YELLOW = 0x07FF
         self.ORANGE = 0x07F5
 
-        
+
     def write_cmd(self, cmd):
         self.cs(1)
         self.dc(0)
@@ -54,16 +56,16 @@ class LCD_1inch8(framebuf.FrameBuffer):
         self.cs(1)
 
     def init_display(self):
-        """Initialize dispaly"""  
+        """Initialize dispaly"""
         self.rst(1)
         self.rst(0)
         self.rst(1)
-        
-        self.write_cmd(0x36);
+
+        self.write_cmd(0x36);  # Memory Data Access Control
         self.write_data(0x70);
-        
-        self.write_cmd(0x3A);
-        self.write_data(0x05);
+
+        self.write_cmd(0x3A);  # Colour mode
+        self.write_data(0x05); # 16-bit/pixel
 
          #ST7735R Frame Rate
         self.write_cmd(0xB1);
@@ -165,25 +167,17 @@ class LCD_1inch8(framebuf.FrameBuffer):
         self.write_data(0x01)
         self.write_data(0x00)
         self.write_data(0xA0)
-        
-        
-        
+
         self.write_cmd(0x2B)
         self.write_data(0x00)
         self.write_data(0x02)
         self.write_data(0x00)
         self.write_data(0x81)
-        
+
         self.write_cmd(0x2C)
-        
+
         self.cs(1)
         self.dc(1)
         self.cs(0)
         self.spi.write(self.buffer)
         self.cs(1)
-  
-
-
-
-
-
