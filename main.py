@@ -7,12 +7,7 @@ from machine import Pin,SPI,PWM
 import framebuf3 as framebuf
 from lcd import LCD_1inch8
 
-BL = 13 # Backlight is GP13
-
-# Thresholds for price colouring
-HIGH_LEVEL = 25.0
-MID_LEVEL = 16.0
-LOW_LEVEL = 7.5
+#--- Configuration ---------------------
 
 TIME_OFFSET = 1 # Number of hours difference between API's time and local time (+ve if local time is ahead)
 
@@ -20,10 +15,21 @@ TIME_OFFSET = 1 # Number of hours difference between API's time and local time (
 SSID = 'EE-NCCX77'
 PASSWORD = 'KCN6ndJQJnTKCP'
 
-# Base URL for Agile Octopus tariff info. Set as appropriate for your area
+# Base URL for Agile Octopus tariff info. Set as appropriate for your area	
+# API docs: https://docs.octopus.energy/rest/guides
 API_URL = 'https://api.octopus.energy/v1/products/AGILE-18-02-21/electricity-tariffs/E-1R-AGILE-18-02-21-A/standard-unit-rates/'
 
+# Thresholds for price colouring
+HIGH_LEVEL = 25.0
+MID_LEVEL = 16.0
+LOW_LEVEL = 7.5
+
+MARKER_SPACING = 4	# Hours between time markers on the bar graph
+
+#--------------------------------------
+
 LCD = LCD_1inch8()
+BL = 13 # Backlight is GP13
 
 def connect_to_wifi(ssid, password):
     wlan = network.WLAN(network.STA_IF)
@@ -83,13 +89,13 @@ def get_energy_price(start_time, time_range: bool = False, end_time=None):
     }
     ct = start_time
     
-
+    # Either get all avaialble data from the specified start point
     if (time_range == True) & (end_time == None):
         if start_time[4] < 30:
             ft = '?period_from={:04}-{:02}-{:02}T{:02}:00Z'.format(ct[0], ct[1], ct[2], ct[3])
         else:
             ft = '?period_from={:04}-{:02}-{:02}T{:02}:30Z'.format(ct[0], ct[1], ct[2], ct[3])
-    
+    # Or, get the data between two times 
     else:    
         if time_range == False:
             et = ct
@@ -99,7 +105,7 @@ def get_energy_price(start_time, time_range: bool = False, end_time=None):
         if start_time[4] < 30:
             ft = '?period_from={:04}-{:02}-{:02}T{:02}:00Z&period_to={:04}-{:02}-{:02}T{:02}:29Z'.format(ct[0], ct[1], ct[2], ct[3], et[0], et[1], et[2], et[3])
         else:
-            ft = '?period_from={:04}-{:02}-{:02}T{:02}:30Z&period_to={:04}-{:02}-{:02}T{:02}:59Z'.format(ct[0],ct[1], ct[2], ct[3], et[0],et[1], et[2], et[3])
+            ft = '?period_from={:04}-{:02}-{:02}T{:02}:30Z&period_to={:04}-{:02}-{:02}T{:02}:59Z'.format(ct[0], ct[1], ct[2], ct[3], et[0], et[1], et[2], et[3])
         
     
     print(API_URL + ft)
@@ -111,9 +117,8 @@ def get_energy_price(start_time, time_range: bool = False, end_time=None):
             for result in data['results']:
                 price = result['value_inc_vat']
                 valid_from_time = result['valid_from']
-                # valid_from_time = time.strptime(valid_from_str, "%Y-%m-%dT%H:%M:%SZ")
-                prices.append((price, valid_from_time))
-            print(prices)
+                prices[:0] = [(price, valid_from_time)] # Add to the front of the list as the API returns the items in reverse order
+            # print(prices)
             return prices
         else:
             print('Failed to fetch energy prices. Status code:', response.status_code)
@@ -122,6 +127,7 @@ def get_energy_price(start_time, time_range: bool = False, end_time=None):
         print('Failed to get energy prices:', e)
         
 def get_colour(price):
+    # Returns the apprpriate colour for the price, based on the thresholds set
     if price > HIGH_LEVEL:
         return LCD.RED
     elif price > MID_LEVEL:
@@ -132,6 +138,7 @@ def get_colour(price):
         return LCD.GREEN
     
 def parse_time_string(time_string):
+    # Extracts the date/time elements from a date string returned by the API 
     # Example: "2024-07-24T12:00:00Z"
     year = int(time_string[0:4])
     month = int(time_string[5:7])
@@ -143,7 +150,10 @@ def parse_time_string(time_string):
     return (year, month, day, hour, minute, second, 0, 0)
 
 def draw_bar_graph(fb, bar_values, bar_colours, x_start, y_start, max_width, min_val, max_val, bar_width):
-    # Calculate the total height of the bar graph
+    # Draws a bar graph of the price values, and adds time markers
+    # Bar colours are coded according to the prices
+    
+    # Calculate the total height of the bar graph based on max an min values
     graph_height = max_val - min_val
     num_bars = min(len(bar_values), max_width // bar_width)
     if bar_width > 1:
@@ -168,10 +178,11 @@ def draw_bar_graph(fb, bar_values, bar_colours, x_start, y_start, max_width, min
             fb.fill_rect(x, y_start-bar_height, bar_width-bar_gap, bar_height, colour)
         else:
             fb.fill_rect(x, y_start, bar_width-bar_gap, -bar_height, colour)
+        # Draw time markers
         valid_time = parse_time_string(bar_values[i][1])
         hour = (valid_time[3] + TIME_OFFSET) % 24
         if valid_time[4] == 0:
-            if (hour % 4 == 0):
+            if (hour % MARKER_SPACING == 0):
                 fb.line(x-1, y_start - max_val, x-1, y_start - min_val, LCD.WHITE)
                 if hour == 0:
                     fb.fill_rect(x-10, y_start - min_val-1, 18,10,LCD.WHITE)
@@ -184,21 +195,20 @@ def draw_bar_graph(fb, bar_values, bar_colours, x_start, y_start, max_width, min
 def main():
     connect_to_wifi(SSID, PASSWORD)
     get_time()
+    
+    # Backlight setting - adjust the duty to adjust brightness
     pwm = PWM(Pin(BL))
     pwm.freq(1000)
     pwm.duty_u16(16000)#max 65535
 
-    LCD = LCD_1inch8()
-    #color BRG
+    LCD = LCD_1inch8()	# Initialse LCD
 
-    ntptime.settime()
-    #now_price = get_energy_price(time.localtime())[0]
-    #next_price = get_energy_price(add_minutes_to_time(time.localtime(),30))[0]
+    # Fetch the initial price list
     list_prices = get_energy_price(time.localtime(), True)
-    list_prices.reverse()
     now_price = list_prices[0][0]
     next_price = list_prices[1][0]
-    # Define graph parameters
+    
+    # Define bargraph parameters
     x_start = 2
     y_start = 105  # Bottom of the graph
     max_width = 160
@@ -209,21 +219,25 @@ def main():
     while True:
         current_time = time.localtime()
         minute = current_time[4]
+        hour = current_time[3]
+        # Every half hour, update the prices
         if minute == 0 or minute == 30:
-            #now_price = get_energy_price(current_time)[0]
-            #next_price = get_energy_price(add_minutes_to_time(current_time,30))[0]
             list_prices = get_energy_price(current_time, True)
-            list_prices.reverse()
             now_price = list_prices[0][0]
             next_price = list_prices[1][0]
+        
+        if hour == 0 and minute == 0:
+            get_time()	# Update the time once a day, to correct any drift
             
         current_time = add_minutes_to_time(current_time, TIME_OFFSET * 60) # 'localtime' is an hour behind actual local time
         hour = current_time[3]
         
+        # Write the date and time on the screen
         formatted_time = format_date(current_time) + ' {:02}:{:02}'.format(hour, minute)
         LCD.fill(LCD.BLACK)
         LCD.text(formatted_time,0,0,LCD.WHITE)
         
+        # Write the now/next prices table
         LCD.rect(0,12,116,28,LCD.WHITE)
         LCD.rect(0,40,116,28,LCD.WHITE)
         LCD.text_mx_my('Now:  {:.2f}p'.format(now_price), 2, 14, 1, 3, LCD.WHITE)
@@ -233,12 +247,13 @@ def main():
         LCD.rect(116,12,40,28,LCD.WHITE)
         LCD.rect(116,40,40,28,LCD.WHITE)
         
+        # Draw the bargraph
         bar_colours = [get_colour(list_prices[i][0]) for i in range(len(list_prices))]
         draw_bar_graph(LCD, list_prices, bar_colours, x_start, y_start, max_width, min_val, max_val, bar_width)
 
         
         LCD.show()
-        time.sleep(60)
+        time.sleep(60) # Redraw every minute to update the time
         
 
 if __name__ == '__main__':
